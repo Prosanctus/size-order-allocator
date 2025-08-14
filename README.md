@@ -2,7 +2,6 @@
 
 A React application for automatically distributing product orders across sizes (and optionally two product variants) based on historical sales data and current stock levels. Supports saving/loading presets, CSV/XLSX export, and single- or dual-variant modes.
 
-![Screenshot](./screenshot.png)
 
 ## Features
 - Automatic allocation based on sales proportions & stock
@@ -22,4 +21,5 @@ A React application for automatically distributing product orders across sizes (
 6. Output directory: `dist`
 7. Deploy.
 
-> Replace `./screenshot.png` with your own screenshot.
+
+
