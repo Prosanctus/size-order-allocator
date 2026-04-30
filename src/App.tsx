@@ -46,12 +46,32 @@ type SectionProps = {
   alloc: number[];
   orderQty: number;
   totalAvail: number;
+  onEntryKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   updateRowFunc: (setter: RowSetter, idx: number, key: keyof Row, value: string) => void;
   addRowFunc: (setter: RowSetter) => void;
   removeRowFunc: (setter: RowSetter, idx: number) => void;
 };
 
+type MetricCardProps = {
+  label: string;
+  value: string;
+  accent: string;
+};
+
 const STORAGE_KEY = "size_order_allocator_presets_v1";
+const inputClass =
+  "h-9 rounded-md border border-slate-300 bg-white px-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100";
+const buttonClass =
+  "h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-cyan-500 hover:text-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-100";
+
+function MetricCard({ label, value, accent }: MetricCardProps) {
+  return (
+    <div className={`rounded-lg border border-slate-200 bg-white p-4 shadow-sm ${accent}`}>
+      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
 
 function Section({
   title,
@@ -60,6 +80,7 @@ function Section({
   alloc,
   orderQty,
   totalAvail,
+  onEntryKeyDown,
   updateRowFunc,
   addRowFunc,
   removeRowFunc,
@@ -67,83 +88,97 @@ function Section({
   const normalized = normalizeProportions(rows);
 
   return (
-    <div className="bg-white rounded-2xl shadow p-4 md:p-6 w-full">
-      <div className="flex items-end justify-between gap-4 mb-4">
+    <section className="w-full rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-semibold">{title}</h2>
-          <p className="text-sm text-gray-600">
-            Order target: <b>{orderQty}</b> pcs · Available: <b>{totalAvail}</b> pcs · Proportion sum:{" "}
+          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Target <b>{orderQty}</b> pcs | Available <b>{totalAvail}</b> pcs | Proportion sum{" "}
             <b>{toPercent(sum(normalized.map((row) => row.proportion)))}</b>
           </p>
         </div>
-        <button className="text-sm px-3 py-2 rounded-xl border" onClick={() => addRowFunc(setRows)}>
+        <button className={buttonClass} onClick={() => addRowFunc(setRows)} type="button">
           + row
         </button>
       </div>
 
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500 border-b">
-              <th className="py-2 pr-3">Size</th>
-              <th className="py-2 pr-3">Sales</th>
-              <th className="py-2 pr-3">Proportion (from sales)</th>
-              <th className="py-2 pr-3">Available</th>
-              <th className="py-2 pr-3">Order (result)</th>
-              <th></th>
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <tr className="border-b border-slate-200">
+              <th className="px-4 py-3">Size</th>
+              <th className="px-3 py-3 text-right">Sales</th>
+              <th className="px-3 py-3 text-right">Proportion</th>
+              <th className="px-3 py-3 text-right">Available</th>
+              <th className="px-3 py-3 text-right">Order</th>
+              <th className="px-4 py-3"></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-100">
             {rows.map((row, index) => (
-              <tr key={index} className="border-b last:border-b-0">
-                <td className="py-2 pr-3">
+              <tr key={index} className="transition hover:bg-slate-50">
+                <td className="px-4 py-2">
                   <input
-                    className="w-20 border rounded-lg px-2 py-1"
+                    className={`${inputClass} w-20 font-medium`}
+                    data-entry-input="true"
                     value={row.size}
                     onChange={(event) => updateRowFunc(setRows, index, "size", event.target.value)}
+                    onKeyDown={onEntryKeyDown}
                   />
                 </td>
-                <td className="py-2 pr-3">
+                <td className="px-3 py-2 text-right">
                   <input
                     type="text"
-                    inputMode="numeric"
-                    className="w-24 border rounded-lg px-2 py-1 text-right"
+                    inputMode="decimal"
+                    className={`${inputClass} w-24 text-right`}
+                    data-entry-input="true"
                     value={String(row.sales)}
                     onChange={(event) => updateRowFunc(setRows, index, "sales", event.target.value)}
+                    onKeyDown={onEntryKeyDown}
                   />
                 </td>
-                <td className="py-2 pr-3 text-right">{toPercent(normalized[index]?.proportion ?? 0, 2)}</td>
-                <td className="py-2 pr-3">
+                <td className="px-3 py-2 text-right font-medium text-slate-700">{toPercent(normalized[index]?.proportion ?? 0, 2)}</td>
+                <td className="px-3 py-2 text-right">
                   <input
                     type="text"
-                    inputMode="numeric"
-                    className="w-28 border rounded-lg px-2 py-1 text-right"
+                    inputMode="decimal"
+                    className={`${inputClass} w-24 text-right`}
+                    data-entry-input="true"
                     value={String(row.available)}
                     onChange={(event) => updateRowFunc(setRows, index, "available", event.target.value)}
+                    onKeyDown={onEntryKeyDown}
                   />
                 </td>
-                <td className="py-2 pr-3 font-semibold text-right">{alloc[index] ?? 0}</td>
-                <td className="py-2 pr-3 text-right">
-                  <button className="text-xs text-red-600" onClick={() => removeRowFunc(setRows, index)}>
+                <td className="px-3 py-2 text-right">
+                  <span className="inline-flex min-w-10 justify-center rounded-md bg-cyan-50 px-2 py-1 font-semibold text-cyan-800">
+                    {alloc[index] ?? 0}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    className="rounded-md px-2 py-1 text-xs font-medium text-rose-600 transition hover:bg-rose-50"
+                    onClick={() => removeRowFunc(setRows, index)}
+                    type="button"
+                  >
                     remove
                   </button>
                 </td>
               </tr>
             ))}
           </tbody>
-          <tfoot>
+          <tfoot className="border-t border-slate-200 bg-slate-50 font-semibold text-slate-800">
             <tr>
-              <td className="py-2 pr-3 font-medium">TOTAL</td>
-              <td className="py-2 pr-3 text-right">{sum(rows.map((row) => toNumber(row.sales, 0)))}</td>
-              <td className="py-2 pr-3 text-right">{toPercent(sum(normalized.map((row) => row.proportion)))}</td>
-              <td className="py-2 pr-3 text-right">{sum(rows.map((row) => toNumber(row.available, 0)))}</td>
-              <td className="py-2 pr-3 text-right font-semibold">{sum(alloc)}</td>
+              <td className="px-4 py-3">TOTAL</td>
+              <td className="px-3 py-3 text-right">{sum(rows.map((row) => toNumber(row.sales, 0)))}</td>
+              <td className="px-3 py-3 text-right">{toPercent(sum(normalized.map((row) => row.proportion)))}</td>
+              <td className="px-3 py-3 text-right">{sum(rows.map((row) => toNumber(row.available, 0)))}</td>
+              <td className="px-3 py-3 text-right">{sum(alloc)}</td>
               <td></td>
             </tr>
           </tfoot>
         </table>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -164,6 +199,7 @@ export default function App() {
   const vAlloc = useMemo(() => allocateOrder(vneck, orderV), [vneck, orderV]);
   const totalAvailBoat = sum(boat.map((row) => toNumber(row.available, 0)));
   const totalAvailV = sum(vneck.map((row) => toNumber(row.available, 0)));
+  const totalAllocated = sum(boatAlloc) + sum(vAlloc);
   const exportParams = { totalOrder, twoVariants, splitBoat, orderBoat, orderV, boat, vneck, boatAlloc, vAlloc };
 
   useEffect(() => {
@@ -188,6 +224,22 @@ export default function App() {
     const ok = sum(allocation) === 10 && allocation[0] === 5 && allocation[1] === 5;
     if (!ok) console.error("TEST FAIL: allocation should split 10 as 5/5", allocation);
   }, []);
+
+  function focusNextEntry(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+
+    event.preventDefault();
+    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("[data-entry-input='true']"));
+    const currentIndex = inputs.indexOf(event.currentTarget);
+    const nextInput = inputs[currentIndex + 1];
+
+    if (nextInput) {
+      nextInput.focus();
+      nextInput.select();
+    } else {
+      event.currentTarget.blur();
+    }
+  }
 
   function savePresets(list: Preset[]) {
     setPresets(list);
@@ -252,55 +304,73 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Size Order Allocator</h1>
-            <p className="text-gray-600">Distribute an order across variants and sizes using stock and historical sales.</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 bg-white p-4 rounded-2xl shadow">
-            <label className="flex items-center gap-2 col-span-2">
-              <input type="checkbox" checked={twoVariants} onChange={(event) => setTwoVariants(event.target.checked)} />
-              <span className="text-sm text-gray-700">
-                Product has <b>two variants</b> (Boat neck / V-neck)
-              </span>
-            </label>
-            <label className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Total order</span>
-              <input
-                type="number"
-                className="w-28 border rounded-lg px-2 py-1 text-right"
-                value={totalOrder}
-                onChange={(event) => setTotalOrder(Math.max(0, Math.floor(toNumber(event.target.value, 0))))}
-              />
-            </label>
-            {twoVariants && (
-              <label className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Boat neck share</span>
+    <div className="min-h-screen bg-slate-100 p-4 text-slate-900 md:p-8">
+      <div className="mx-auto max-w-7xl space-y-5">
+        <header className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Order planning</p>
+              <h1 className="mt-1 text-2xl font-bold text-slate-950 md:text-3xl">Size Order Allocator</h1>
+              <p className="mt-2 max-w-2xl text-sm text-slate-600">
+                Distribute an order across variants and sizes using stock, historical sales, and the current variant split.
+              </p>
+            </div>
+
+            <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:min-w-[520px]">
+              <label className="flex items-center gap-2 sm:col-span-2">
+                <input
+                  className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  type="checkbox"
+                  checked={twoVariants}
+                  onChange={(event) => setTwoVariants(event.target.checked)}
+                />
+                <span className="text-sm text-slate-700">
+                  Product has <b>two variants</b> (Boat neck / V-neck)
+                </span>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Total order</span>
                 <input
                   type="number"
-                  step="0.01"
-                  className="w-28 border rounded-lg px-2 py-1 text-right"
-                  value={splitBoat}
-                  onChange={(event) => setSplitBoat(Math.max(0, Math.min(1, toNumber(event.target.value, 0))))}
+                  className={`${inputClass} w-full text-right`}
+                  data-entry-input="true"
+                  value={totalOrder}
+                  onChange={(event) => setTotalOrder(Math.max(0, Math.floor(toNumber(event.target.value, 0))))}
+                  onKeyDown={focusNextEntry}
                 />
               </label>
-            )}
-            <div className="col-span-2 text-xs text-gray-600">
-              {twoVariants ? (
-                <>
-                  V-neck share = <b>{toPercent(splitV)}</b>, Boat neck = <b>{toPercent(splitBoat)}</b>. Orders: Boat{" "}
-                  <b>{orderBoat}</b> pcs, V-neck <b>{orderV}</b> pcs.
-                </>
-              ) : (
-                <>Single product mode. The entire order goes into one table.</>
+
+              {twoVariants && (
+                <label className="space-y-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Boat neck share</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className={`${inputClass} w-full text-right`}
+                    data-entry-input="true"
+                    value={splitBoat}
+                    onChange={(event) => setSplitBoat(Math.max(0, Math.min(1, toNumber(event.target.value, 0))))}
+                    onKeyDown={focusNextEntry}
+                  />
+                </label>
               )}
+
+              <div className="rounded-md border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs text-cyan-900 sm:col-span-2">
+                {twoVariants ? (
+                  <>
+                    Boat <b>{toPercent(splitBoat)}</b> / V-neck <b>{toPercent(splitV)}</b>. Orders: Boat <b>{orderBoat}</b> pcs, V-neck{" "}
+                    <b>{orderV}</b> pcs.
+                  </>
+                ) : (
+                  <>Single product mode. The whole order goes into the first table.</>
+                )}
+              </div>
             </div>
           </div>
         </header>
 
-        <div className={`grid gap-6 ${twoVariants ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
+        <div className={`grid gap-5 ${twoVariants ? "xl:grid-cols-2" : "xl:grid-cols-1"}`}>
           <Section
             title={twoVariants ? "Variant: Boat neck" : "Product"}
             rows={boat}
@@ -308,6 +378,7 @@ export default function App() {
             alloc={boatAlloc}
             orderQty={orderBoat}
             totalAvail={totalAvailBoat}
+            onEntryKeyDown={focusNextEntry}
             updateRowFunc={updateRow}
             addRowFunc={addRow}
             removeRowFunc={removeRow}
@@ -320,6 +391,7 @@ export default function App() {
               alloc={vAlloc}
               orderQty={orderV}
               totalAvail={totalAvailV}
+              onEntryKeyDown={focusNextEntry}
               updateRowFunc={updateRow}
               addRowFunc={addRow}
               removeRowFunc={removeRow}
@@ -327,74 +399,66 @@ export default function App() {
           )}
         </div>
 
-        <div className="bg-white rounded-2xl shadow p-4 md:p-6">
-          <h2 className="text-lg font-semibold mb-2">Summary</h2>
-          <div className="grid md:grid-cols-3 gap-4 text-sm">
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="text-gray-600">Total order</div>
-              <div className="text-2xl font-bold">{totalOrder} pcs</div>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-950">Summary</h2>
+              <p className="mt-1 text-sm text-slate-600">Review totals, export files, and save reusable presets.</p>
             </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="text-gray-600">Orders (Boat / V)</div>
-              <div className="text-2xl font-bold">
-                {sum(boatAlloc)} / {sum(vAlloc)} pcs
-              </div>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="text-gray-600">Integrity check</div>
-              <div
-                className={`text-2xl font-bold ${
-                  sum(boatAlloc) + sum(vAlloc) === totalOrder ? "text-emerald-600" : "text-red-600"
-                }`}
-              >
-                {sum(boatAlloc) + sum(vAlloc)} / {totalOrder}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-3 mt-4">
-            <button className="px-4 py-2 rounded-xl border" onClick={() => exportXLSX(exportParams)}>
-              Export XLSX
-            </button>
-            <button className="px-4 py-2 rounded-xl border" onClick={() => exportCSV(exportParams)}>
-              Export CSV
-            </button>
-
-            <div className="ml-auto flex items-center gap-2">
-              <input
-                className="border rounded-lg px-2 py-1"
-                placeholder="Preset name"
-                value={presetName}
-                onChange={(event) => setPresetName(event.target.value)}
-              />
-              <button className="px-3 py-2 rounded-xl border" onClick={handleSavePreset}>
-                Save preset
+            <div className="flex flex-wrap gap-2">
+              <button className={buttonClass} onClick={() => exportXLSX(exportParams)} type="button">
+                Export XLSX
               </button>
-              <select className="border rounded-lg px-2 py-2" value={selectedPreset} onChange={(event) => handleLoadPreset(event.target.value)}>
-                <option value="">- load preset -</option>
-                {presets.map((preset) => (
-                  <option key={preset.name} value={preset.name}>
-                    {preset.name}
-                  </option>
-                ))}
-              </select>
-              {selectedPreset && (
-                <button className="px-3 py-2 rounded-xl border text-red-600" onClick={() => handleDeletePreset(selectedPreset)}>
-                  Delete preset
-                </button>
-              )}
+              <button className={buttonClass} onClick={() => exportCSV(exportParams)} type="button">
+                Export CSV
+              </button>
             </div>
           </div>
 
-          <p className="mt-3 text-gray-600 text-sm">
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <MetricCard label="Total order" value={`${totalOrder} pcs`} accent="border-l-4 border-l-cyan-500" />
+            <MetricCard label="Orders Boat / V" value={`${sum(boatAlloc)} / ${sum(vAlloc)} pcs`} accent="border-l-4 border-l-amber-500" />
+            <MetricCard
+              label="Integrity check"
+              value={`${totalAllocated} / ${totalOrder}`}
+              accent={`border-l-4 ${totalAllocated === totalOrder ? "border-l-emerald-500" : "border-l-rose-500"}`}
+            />
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2 border-t border-slate-200 pt-4 lg:flex-row lg:items-center">
+            <input
+              className={`${inputClass} w-full lg:w-64`}
+              placeholder="Preset name"
+              value={presetName}
+              onChange={(event) => setPresetName(event.target.value)}
+            />
+            <button className={buttonClass} onClick={handleSavePreset} type="button">
+              Save preset
+            </button>
+            <select
+              className={`${inputClass} w-full lg:w-64`}
+              value={selectedPreset}
+              onChange={(event) => handleLoadPreset(event.target.value)}
+            >
+              <option value="">- load preset -</option>
+              {presets.map((preset) => (
+                <option key={preset.name} value={preset.name}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
+            {selectedPreset && (
+              <button className={`${buttonClass} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={() => handleDeletePreset(selectedPreset)} type="button">
+                Delete preset
+              </button>
+            )}
+          </div>
+
+          <p className="mt-3 text-sm text-slate-500">
             Algorithm: target final stock = proportion x (available + order). Per-size order = max(0, target - available), then scale and
             round via largest remainders to hit the exact total.
           </p>
-        </div>
-
-        <footer className="text-xs text-gray-500">
-          Tip: Sales and Available inputs keep raw text while typing; parsing happens in calculations.
-        </footer>
+        </section>
       </div>
     </div>
   );
