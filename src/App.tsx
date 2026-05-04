@@ -37,6 +37,10 @@ type Preset = {
   vneck: Row[];
 };
 
+type BaseTemplate = Preset & {
+  description: string;
+};
+
 type RowSetter = React.Dispatch<React.SetStateAction<Row[]>>;
 
 type SectionProps = {
@@ -63,6 +67,84 @@ const inputClass =
   "h-9 rounded-md border border-slate-300 bg-white px-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100";
 const buttonClass =
   "h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-cyan-500 hover:text-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-100";
+
+const baseTemplates: BaseTemplate[] = [
+  {
+    name: "Sukienki / rozmiary XS-XXL",
+    description: "Jedna tabela dla sukienek, bluz, swetrów i innych produktów liczonych po standardowych rozmiarach.",
+    totalOrder: 500,
+    splitBoat: 1,
+    twoVariants: false,
+    boat: [
+      { size: "XS", sales: "18", proportion: 0, available: "8" },
+      { size: "S", sales: "54", proportion: 0, available: "18" },
+      { size: "M", sales: "72", proportion: 0, available: "20" },
+      { size: "L", sales: "48", proportion: 0, available: "14" },
+      { size: "XL", sales: "22", proportion: 0, available: "7" },
+      { size: "XXL", sales: "10", proportion: 0, available: "3" },
+    ],
+    vneck: [],
+  },
+  {
+    name: "Spodnie / rozmiary 34-44",
+    description: "Układ dla spodni, jeansów i dołów, gdzie rozmiarówka jest numeryczna.",
+    totalOrder: 400,
+    splitBoat: 1,
+    twoVariants: false,
+    boat: [
+      { size: "34", sales: "12", proportion: 0, available: "4" },
+      { size: "36", sales: "38", proportion: 0, available: "11" },
+      { size: "38", sales: "64", proportion: 0, available: "17" },
+      { size: "40", sales: "58", proportion: 0, available: "13" },
+      { size: "42", sales: "31", proportion: 0, available: "8" },
+      { size: "44", sales: "14", proportion: 0, available: "3" },
+    ],
+    vneck: [],
+  },
+  {
+    name: "T-shirty / dwa warianty",
+    description: "Dwie tabele, np. dwa kroje, dwa dekolty albo dwie wersje produktu.",
+    totalOrder: 800,
+    splitBoat: 0.45,
+    twoVariants: true,
+    boat: [
+      { size: "XS", sales: "10", proportion: 0, available: "6" },
+      { size: "S", sales: "44", proportion: 0, available: "22" },
+      { size: "M", sales: "68", proportion: 0, available: "25" },
+      { size: "L", sales: "52", proportion: 0, available: "16" },
+      { size: "XL", sales: "24", proportion: 0, available: "8" },
+      { size: "XXL", sales: "12", proportion: 0, available: "2" },
+    ],
+    vneck: [
+      { size: "XS", sales: "8", proportion: 0, available: "5" },
+      { size: "S", sales: "36", proportion: 0, available: "18" },
+      { size: "M", sales: "74", proportion: 0, available: "24" },
+      { size: "L", sales: "61", proportion: 0, available: "14" },
+      { size: "XL", sales: "28", proportion: 0, available: "7" },
+      { size: "XXL", sales: "16", proportion: 0, available: "1" },
+    ],
+  },
+  {
+    name: "Buty / rozmiary 36-41",
+    description: "Szybki start dla produktów liczonych po rozmiarach obuwia.",
+    totalOrder: 300,
+    splitBoat: 1,
+    twoVariants: false,
+    boat: [
+      { size: "36", sales: "9", proportion: 0, available: "3" },
+      { size: "37", sales: "24", proportion: 0, available: "7" },
+      { size: "38", sales: "42", proportion: 0, available: "12" },
+      { size: "39", sales: "38", proportion: 0, available: "10" },
+      { size: "40", sales: "21", proportion: 0, available: "5" },
+      { size: "41", sales: "11", proportion: 0, available: "2" },
+    ],
+    vneck: [],
+  },
+];
+
+function cloneRows(rows: Row[]) {
+  return rows.map((row) => ({ ...row }));
+}
 
 function MetricCard({ label, value, accent }: MetricCardProps) {
   return (
@@ -241,6 +323,16 @@ export default function App() {
     }
   }
 
+  function applyTemplate(template: BaseTemplate) {
+    setTwoVariants(template.twoVariants);
+    setTotalOrder(template.totalOrder);
+    setSplitBoat(template.splitBoat);
+    setBoat(cloneRows(template.boat));
+    setVneck(cloneRows(template.vneck));
+    setPresetName(template.name);
+    setSelectedPreset("");
+  }
+
   function savePresets(list: Preset[]) {
     setPresets(list);
     try {
@@ -271,8 +363,8 @@ export default function App() {
     setTotalOrder(preset.totalOrder);
     setSplitBoat(preset.splitBoat);
     setTwoVariants(preset.twoVariants);
-    setBoat(preset.boat);
-    setVneck(preset.vneck);
+    setBoat(cloneRows(preset.boat));
+    setVneck(cloneRows(preset.vneck));
   }
 
   function handleDeletePreset(name: string) {
@@ -370,6 +462,30 @@ export default function App() {
           </div>
         </header>
 
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Bazowe szablony</p>
+              <h2 className="text-lg font-semibold text-slate-950">Start z gotowej rozmiarówki</h2>
+              <p className="mt-1 text-sm text-slate-600">Wybierz typ produktu, a potem podmień sprzedaż i dostępność na aktualne dane.</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {baseTemplates.map((template) => (
+              <button
+                key={template.name}
+                className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-cyan-400 hover:bg-cyan-50 focus:outline-none focus:ring-2 focus:ring-cyan-100"
+                onClick={() => applyTemplate(template)}
+                type="button"
+              >
+                <span className="text-sm font-semibold text-slate-950">{template.name}</span>
+                <span className="mt-2 block text-xs leading-5 text-slate-600">{template.description}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
         <div className={`grid gap-5 ${twoVariants ? "xl:grid-cols-2" : "xl:grid-cols-1"}`}>
           <Section
             title={twoVariants ? "Variant: Boat neck" : "Product"}
@@ -398,6 +514,45 @@ export default function App() {
             />
           )}
         </div>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Instrukcja dla produkcji</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-950">Jak przygotować dane do zamówienia</h2>
+              <ol className="mt-3 space-y-3 text-sm leading-6 text-slate-700">
+                <li>
+                  <b>Sales:</b> wpisz sprzedaż z okresu, w którym produkt realnie był na stocku. Najlepiej użyć ostatnich 30 dni dostępności dla
+                  każdego rozmiaru. Jeśli rozmiar był wyprzedany przez część okresu, nie licz dni bez stocku do analizy.
+                </li>
+                <li>
+                  <b>Available:</b> wpisz aktualny stan magazynowy przed domówieniem. To ma być stan dostępny do sprzedaży, nie suma z rezerwacjami
+                  albo towarem w drodze.
+                </li>
+                <li>
+                  <b>Total order:</b> wpisz całkowitą liczbę sztuk, którą chcesz zlecić do produkcji. Aplikacja rozdzieli ją po rozmiarach tak, żeby
+                  po dostawie stock był bliżej proporcji sprzedaży.
+                </li>
+                <li>
+                  <b>Dwa warianty:</b> włącz checkbox, gdy produkt ma dwie wersje, np. dwa kroje, dekolty albo kolory produkowane w jednej partii.
+                  Ustaw udział pierwszego wariantu w polu Boat neck share.
+                </li>
+              </ol>
+            </div>
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+              <h3 className="font-semibold">Dobra praktyka</h3>
+              <p className="mt-2">
+                Dla nowego produktu użyj podobnego produktu jako benchmarku: podobny krój, materiał, sezon i cena. Dla bestsellerów patrz na
+                dłuższy okres, ale tylko wtedy, gdy rozmiary nie były długo wyprzedane.
+              </p>
+              <p className="mt-2">
+                Jeśli jakiś rozmiar sprzedał mało sztuk tylko dlatego, że szybko zniknął ze stocku, podnieś jego sprzedaż ręcznie albo użyj okresu,
+                w którym był dostępny. Inaczej algorytm może go zaniżyć.
+              </p>
+            </div>
+          </div>
+        </section>
 
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
