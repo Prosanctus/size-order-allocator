@@ -1,378 +1,464 @@
-import React, { useMemo, useState, useEffect } from "react";
-import * as XLSX from "xlsx";
+import React, { useEffect, useMemo, useState } from "react";
 
-// ---------- Helpers ----------
-function toNumber(v: any, fallback = 0) {
-  if (typeof v === "number") return Number.isFinite(v) ? v : fallback;
-  const str = String(v).trim().replace(/\s/g, "");
-  if (str === "" || str === "-" || str === "," || str === ".") return fallback;
-  const n = parseFloat(str.replace(",", "."));
-  return Number.isFinite(n) ? n : fallback;
-}
-function sum(arr: number[]) { return arr.reduce((a, b) => a + b, 0); }
-function toPercent(x: number, digits = 1) {
-  const n = Number.isFinite(x) ? x : 0;
-  return (n * 100).toFixed(digits) + "%";
-}
+import {
+  allocateOrder,
+  normalizeProportions,
+  sum,
+  toNumber,
+  toPercent,
+  type Row,
+} from "./allocation";
+import { exportCSV, exportXLSX } from "./exporters";
 
-// ---------- Types ----------
-export type Row = {
-  size: string;
-  sales: number | string;     // keep raw string while typing
-  proportion: number;         // computed from sales
-  available: number | string; // keep raw string while typing
-};
-
-// ---------- Core logic ----------
-function normalizeProportions(rows: Row[]) {
-  const sales = rows.map(r => toNumber(r.sales, 0));
-  const s = sum(sales);
-  if (s > 0) return rows.map((r, i) => ({ ...r, proportion: sales[i] / s }));
-  const equal = rows.length ? 1 / rows.length : 0;
-  return rows.map(r => ({ ...r, proportion: equal }));
-}
-
-function allocateOrder(rows: Row[], totalOrder: number) {
-  const clean = normalizeProportions(rows);
-  const availNums = clean.map(r => toNumber(r.available, 0));
-  const availTotal = sum(availNums);
-  const targetTotal = availTotal + Math.max(0, totalOrder);
-
-  const target = clean.map((r) => r.proportion * targetTotal);
-  const deficit = clean.map((r, i) => Math.max(0, target[i] - availNums[i]));
-  const deficitSum = sum(deficit);
-  if (deficitSum === 0 || totalOrder <= 0) return rows.map(() => 0);
-
-  const scale = totalOrder / deficitSum;
-  const raw = deficit.map(x => x * scale);
-
-  const base = raw.map(x => Math.floor(x));
-  let remainder = totalOrder - sum(base);
-  const fracs = raw.map((x, idx) => ({ idx, frac: x - Math.floor(x) }));
-  fracs.sort((a, b) => b.frac - a.frac);
-  for (let i = 0; i < fracs.length && remainder > 0; i++) {
-    base[fracs[i].idx] += 1;
-    remainder -= 1;
-  }
-  return base;
-}
-
-// ---------- Defaults ----------
 const defaultsBoat: Row[] = [
-  { size: "XS", sales: "4",  proportion: 0, available: "4" },
-  { size: "S",  sales: "47", proportion: 0, available: "47" },
-  { size: "M",  sales: "22", proportion: 0, available: "22" },
-  { size: "L",  sales: "38", proportion: 0, available: "38" },
-  { size: "XL", sales: "3",  proportion: 0, available: "3" },
-  { size: "XXL",sales: "2",  proportion: 0, available: "2" },
+  { size: "XS", sales: "4", proportion: 0, available: "4" },
+  { size: "S", sales: "47", proportion: 0, available: "47" },
+  { size: "M", sales: "22", proportion: 0, available: "22" },
+  { size: "L", sales: "38", proportion: 0, available: "38" },
+  { size: "XL", sales: "3", proportion: 0, available: "3" },
+  { size: "XXL", sales: "2", proportion: 0, available: "2" },
 ];
+
 const defaultsVneck: Row[] = [
   { size: "XS", sales: "12", proportion: 0, available: "18" },
-  { size: "S",  sales: "31", proportion: 0, available: "37" },
-  { size: "M",  sales: "62", proportion: 0, available: "31" },
-  { size: "L",  sales: "53", proportion: 0, available: "11" },
+  { size: "S", sales: "31", proportion: 0, available: "37" },
+  { size: "M", sales: "62", proportion: 0, available: "31" },
+  { size: "L", sales: "53", proportion: 0, available: "11" },
   { size: "XL", sales: "23", proportion: 0, available: "7" },
-  { size: "XXL",sales: "26", proportion: 0, available: "0" },
+  { size: "XXL", sales: "26", proportion: 0, available: "0" },
 ];
 
-// ---------- Top-level Section (keeps focus stable) ----------
+type Preset = {
+  name: string;
+  totalOrder: number;
+  splitBoat: number;
+  twoVariants: boolean;
+  boat: Row[];
+  vneck: Row[];
+};
+
+type RowSetter = React.Dispatch<React.SetStateAction<Row[]>>;
+
 type SectionProps = {
   title: string;
   rows: Row[];
-  setRows: React.Dispatch<React.SetStateAction<Row[]>>;
+  setRows: RowSetter;
   alloc: number[];
   orderQty: number;
   totalAvail: number;
-  updateRowFunc: (setter: React.Dispatch<React.SetStateAction<Row[]>>, idx: number, key: keyof Row, value: string) => void;
-  addRowFunc: (setter: React.Dispatch<React.SetStateAction<Row[]>>) => void;
-  removeRowFunc: (setter: React.Dispatch<React.SetStateAction<Row[]>>, idx: number) => void;
+  onEntryKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  updateRowFunc: (setter: RowSetter, idx: number, key: keyof Row, value: string) => void;
+  addRowFunc: (setter: RowSetter) => void;
+  removeRowFunc: (setter: RowSetter, idx: number) => void;
 };
 
-function Section({ title, rows, setRows, alloc, orderQty, totalAvail, updateRowFunc, addRowFunc, removeRowFunc }: SectionProps) {
-  const normalized = normalizeProportions(rows);
+type MetricCardProps = {
+  label: string;
+  value: string;
+  accent: string;
+};
+
+const STORAGE_KEY = "size_order_allocator_presets_v1";
+const inputClass =
+  "h-9 rounded-md border border-slate-300 bg-white px-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100";
+const buttonClass =
+  "h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-cyan-500 hover:text-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-100";
+
+function MetricCard({ label, value, accent }: MetricCardProps) {
   return (
-    <div className="bg-white rounded-2xl shadow p-4 md:p-6 w-full">
-      <div className="flex items-end justify-between gap-4 mb-4">
+    <div className={`rounded-lg border border-slate-200 bg-white p-4 shadow-sm ${accent}`}>
+      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  rows,
+  setRows,
+  alloc,
+  orderQty,
+  totalAvail,
+  onEntryKeyDown,
+  updateRowFunc,
+  addRowFunc,
+  removeRowFunc,
+}: SectionProps) {
+  const normalized = normalizeProportions(rows);
+
+  return (
+    <section className="w-full rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-semibold">{title}</h2>
-          <p className="text-sm text-gray-600">
-            Order target: <b>{orderQty}</b> pcs · Available: <b>{totalAvail}</b> pcs · Proportion sum: <b>{toPercent(sum(normalized.map(r=>r.proportion)))}</b>
+          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Target <b>{orderQty}</b> pcs | Available <b>{totalAvail}</b> pcs | Proportion sum{" "}
+            <b>{toPercent(sum(normalized.map((row) => row.proportion)))}</b>
           </p>
         </div>
-        <button className="text-sm px-3 py-2 rounded-xl border" onClick={() => addRowFunc(setRows)}>+ row</button>
+        <button className={buttonClass} onClick={() => addRowFunc(setRows)} type="button">
+          + row
+        </button>
       </div>
 
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500 border-b">
-              <th className="py-2 pr-3">Size</th>
-              <th className="py-2 pr-3">Sales</th>
-              <th className="py-2 pr-3">Proportion (from sales)</th>
-              <th className="py-2 pr-3">Available</th>
-              <th className="py-2 pr-3">Order (result)</th>
-              <th></th>
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <tr className="border-b border-slate-200">
+              <th className="px-4 py-3">Size</th>
+              <th className="px-3 py-3 text-right">Sales</th>
+              <th className="px-3 py-3 text-right">Proportion</th>
+              <th className="px-3 py-3 text-right">Available</th>
+              <th className="px-3 py-3 text-right">Order</th>
+              <th className="px-4 py-3"></th>
             </tr>
           </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-b last:border-b-0">
-                <td className="py-2 pr-3"><input className="w-20 border rounded-lg px-2 py-1" value={r.size} onChange={e => updateRowFunc(setRows, i, "size", e.target.value)} /></td>
-                <td className="py-2 pr-3"><input type="text" inputMode="numeric" className="w-24 border rounded-lg px-2 py-1 text-right" value={String(r.sales)} onChange={e => updateRowFunc(setRows, i, "sales", e.target.value)} /></td>
-                <td className="py-2 pr-3 text-right">{toPercent(normalized[i]?.proportion ?? 0, 2)}</td>
-                <td className="py-2 pr-3"><input type="text" inputMode="numeric" className="w-28 border rounded-lg px-2 py-1 text-right" value={String(r.available)} onChange={e => updateRowFunc(setRows, i, "available", e.target.value)} /></td>
-                <td className="py-2 pr-3 font-semibold text-right">{alloc[i] ?? 0}</td>
-                <td className="py-2 pr-3 text-right"><button className="text-xs text-red-600" onClick={() => removeRowFunc(setRows, i)}>remove</button></td>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row, index) => (
+              <tr key={index} className="transition hover:bg-slate-50">
+                <td className="px-4 py-2">
+                  <input
+                    className={`${inputClass} w-20 font-medium`}
+                    data-entry-input="true"
+                    value={row.size}
+                    onChange={(event) => updateRowFunc(setRows, index, "size", event.target.value)}
+                    onKeyDown={onEntryKeyDown}
+                  />
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className={`${inputClass} w-24 text-right`}
+                    data-entry-input="true"
+                    value={String(row.sales)}
+                    onChange={(event) => updateRowFunc(setRows, index, "sales", event.target.value)}
+                    onKeyDown={onEntryKeyDown}
+                  />
+                </td>
+                <td className="px-3 py-2 text-right font-medium text-slate-700">{toPercent(normalized[index]?.proportion ?? 0, 2)}</td>
+                <td className="px-3 py-2 text-right">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className={`${inputClass} w-24 text-right`}
+                    data-entry-input="true"
+                    value={String(row.available)}
+                    onChange={(event) => updateRowFunc(setRows, index, "available", event.target.value)}
+                    onKeyDown={onEntryKeyDown}
+                  />
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <span className="inline-flex min-w-10 justify-center rounded-md bg-cyan-50 px-2 py-1 font-semibold text-cyan-800">
+                    {alloc[index] ?? 0}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    className="rounded-md px-2 py-1 text-xs font-medium text-rose-600 transition hover:bg-rose-50"
+                    onClick={() => removeRowFunc(setRows, index)}
+                    type="button"
+                  >
+                    remove
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
-          <tfoot>
+          <tfoot className="border-t border-slate-200 bg-slate-50 font-semibold text-slate-800">
             <tr>
-              <td className="py-2 pr-3 font-medium">TOTAL</td>
-              <td className="py-2 pr-3 text-right">{sum(rows.map(r=> toNumber(r.sales, 0)))}</td>
-              <td className="py-2 pr-3 text-right">{toPercent(sum(normalized.map(r=>r.proportion)))}</td>
-              <td className="py-2 pr-3 text-right">{sum(rows.map(r=> toNumber(r.available, 0)))}</td>
-              <td className="py-2 pr-3 text-right font-semibold">{sum(alloc)}</td>
+              <td className="px-4 py-3">TOTAL</td>
+              <td className="px-3 py-3 text-right">{sum(rows.map((row) => toNumber(row.sales, 0)))}</td>
+              <td className="px-3 py-3 text-right">{toPercent(sum(normalized.map((row) => row.proportion)))}</td>
+              <td className="px-3 py-3 text-right">{sum(rows.map((row) => toNumber(row.available, 0)))}</td>
+              <td className="px-3 py-3 text-right">{sum(alloc)}</td>
               <td></td>
             </tr>
           </tfoot>
         </table>
       </div>
-    </div>
+    </section>
   );
 }
 
-// ---------- App ----------
 export default function App() {
   const [twoVariants, setTwoVariants] = useState<boolean>(true);
   const [totalOrder, setTotalOrder] = useState<number>(800);
-  const [splitBoat, setSplitBoat] = useState<number>(0.4); // boat neck share (0..1)
-  const splitV = 1 - splitBoat;
-
+  const [splitBoat, setSplitBoat] = useState<number>(0.4);
   const [boat, setBoat] = useState<Row[]>(defaultsBoat);
   const [vneck, setVneck] = useState<Row[]>(defaultsVneck);
-
-  // Dynamic document title
-  useEffect(() => {
-    document.title = `Size Order Allocator — ${twoVariants ? "Dual Variant" : "Single Variant"}`;
-  }, [twoVariants]);
-
-  // Presets (localStorage)
-  type Preset = { name: string; totalOrder: number; splitBoat: number; twoVariants: boolean; boat: Row[]; vneck: Row[] };
-  const STORAGE_KEY = "size_order_allocator_presets_v1";
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetName, setPresetName] = useState<string>("");
   const [selectedPreset, setSelectedPreset] = useState<string>("");
 
-  useEffect(() => {
-    try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) setPresets(JSON.parse(raw)); } catch {}
-  }, []);
-  const savePresets = (list: Preset[]) => { setPresets(list); try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch {} };
-  const handleSavePreset = () => {
-    const name = presetName.trim() || `Preset ${new Date().toLocaleString()}`;
-    const p: Preset = { name, totalOrder, splitBoat, twoVariants, boat, vneck };
-    const idx = presets.findIndex(x => x.name === name);
-    const next = [...presets];
-    if (idx >= 0) next[idx] = p; else next.push(p);
-    savePresets(next);
-    setSelectedPreset(name);
-  };
-  const handleLoadPreset = (name: string) => {
-    const p = presets.find(x => x.name === name);
-    if (!p) return;
-    setSelectedPreset(name);
-    setTotalOrder(p.totalOrder);
-    setSplitBoat(p.splitBoat);
-    setTwoVariants(p.twoVariants);
-    setBoat(p.boat);
-    setVneck(p.vneck);
-  };
-  const handleDeletePreset = (name: string) => {
-    const next = presets.filter(p => p.name !== name);
-    savePresets(next);
-    if (selectedPreset === name) setSelectedPreset("");
-  };
-
-  // Calculations
+  const splitV = 1 - splitBoat;
   const orderBoat = twoVariants ? Math.round(totalOrder * splitBoat) : totalOrder;
   const orderV = twoVariants ? totalOrder - orderBoat : 0;
   const boatAlloc = useMemo(() => allocateOrder(boat, orderBoat), [boat, orderBoat]);
   const vAlloc = useMemo(() => allocateOrder(vneck, orderV), [vneck, orderV]);
-  const totalAvailBoat = sum(boat.map(r => toNumber(r.available, 0)));
-  const totalAvailV = sum(vneck.map(r => toNumber(r.available, 0)));
+  const totalAvailBoat = sum(boat.map((row) => toNumber(row.available, 0)));
+  const totalAvailV = sum(vneck.map((row) => toNumber(row.available, 0)));
+  const totalAllocated = sum(boatAlloc) + sum(vAlloc);
+  const exportParams = { totalOrder, twoVariants, splitBoat, orderBoat, orderV, boat, vneck, boatAlloc, vAlloc };
 
-  // Row editing (keep raw strings, parse only in math)
-  function updateRow(setter: React.Dispatch<React.SetStateAction<Row[]>>, idx: number, key: keyof Row, value: string) {
-    setter(prev => {
-      const next = [...prev];
-      const row = { ...next[idx] } as Row;
-      if (key === "size") row.size = value;
-      else if (key === "sales") row.sales = value;
-      else if (key === "available") row.available = value;
-      next[idx] = row;
-      return next;
-    });
-  }
-  function addRow(setter: React.Dispatch<React.SetStateAction<Row[]>>) {
-    setter(prev => [...prev, { size: "", sales: "", proportion: 0, available: "" }]);
-  }
-  function removeRow(setter: React.Dispatch<React.SetStateAction<Row[]>>, idx: number) {
-    setter(prev => prev.filter((_, i) => i !== idx));
-  }
-
-  // Export
-  function exportXLSX() {
-    const date = new Date().toISOString().slice(0,10);
-    const wb = XLSX.utils.book_new();
-    const makeSheet = (title: string, rows: Row[], alloc: number[]) => {
-      const norm = normalizeProportions(rows);
-      const data = rows.map((r, i) => ({
-        Size: r.size,
-        Sales: toNumber(r.sales, 0),
-        Proportion: Number((norm[i]?.proportion ?? 0).toFixed(6)),
-        Available: toNumber(r.available, 0),
-        Order: alloc[i] ?? 0,
-      }));
-      return XLSX.utils.json_to_sheet(data);
-    };
-    const summary = [
-      { Key: "Total order", Value: totalOrder },
-      { Key: "Mode", Value: twoVariants ? "Boat neck + V-neck" : "Single product" },
-      { Key: "Boat neck share", Value: twoVariants ? splitBoat : 1 },
-      { Key: "V-neck share", Value: twoVariants ? 1 - splitBoat : 0 },
-      { Key: "Order (Boat neck)", Value: twoVariants ? orderBoat : totalOrder },
-      { Key: "Order (V-neck)", Value: twoVariants ? orderV : 0 },
-    ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), "Summary");
-    XLSX.utils.book_append_sheet(wb, makeSheet(twoVariants ? "Boat neck" : "Product", boat, boatAlloc), twoVariants ? "Boat neck" : "Product");
-    if (twoVariants) XLSX.utils.book_append_sheet(wb, makeSheet("V-neck", vneck, vAlloc), "V-neck");
-    XLSX.writeFile(wb, `size_order_allocator_${date}.xlsx`);
-  }
-  function exportCSV() {
-    const lines: string[] = [];
-    const pushSection = (name: string, rows: Row[], alloc: number[]) => {
-      const norm = normalizeProportions(rows);
-      lines.push(`# ${name}`);
-      lines.push("Size;Sales;Proportion;Available;Order");
-      rows.forEach((r, i) => {
-        lines.push([r.size, toNumber(r.sales, 0), (norm[i]?.proportion ?? 0).toFixed(6), toNumber(r.available, 0), alloc[i] ?? 0].join(";"));
-      });
-      lines.push("");
-    };
-    lines.push(`# Summary`);
-    lines.push(`Total order;${totalOrder}`);
-    lines.push(`Mode;${twoVariants ? "Boat neck + V-neck" : "Single product"}`);
-    lines.push(`Boat neck share;${twoVariants ? splitBoat : 1}`);
-    lines.push(`V-neck share;${twoVariants ? 1 - splitBoat : 0}`);
-    lines.push("");
-    pushSection(twoVariants ? "Boat neck" : "Product", boat, boatAlloc);
-    if (twoVariants) pushSection("V-neck", vneck, vAlloc);
-
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "size-order-allocator.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  // Minimal console tests
   useEffect(() => {
-    const assert = (name: string, cond: boolean) => { if (!cond) console.error(`TEST FAIL: ${name}`); else console.log(`TEST OK: ${name}`); };
+    document.title = `Size Order Allocator - ${twoVariants ? "Dual Variant" : "Single Variant"}`;
+  }, [twoVariants]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setPresets(JSON.parse(raw));
+    } catch {
+      setPresets([]);
+    }
+  }, []);
+
+  useEffect(() => {
     const rows1: Row[] = [
       { size: "A", sales: "1", proportion: 0, available: "0" },
       { size: "B", sales: "1", proportion: 0, available: "0" },
     ];
-    const a1 = allocateOrder(rows1, 10);
-    assert("sum=10, 5/5 split", sum(a1) === 10 && a1[0] === 5 && a1[1] === 5);
+    const allocation = allocateOrder(rows1, 10);
+    const ok = sum(allocation) === 10 && allocation[0] === 5 && allocation[1] === 5;
+    if (!ok) console.error("TEST FAIL: allocation should split 10 as 5/5", allocation);
   }, []);
 
+  function focusNextEntry(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+
+    event.preventDefault();
+    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("[data-entry-input='true']"));
+    const currentIndex = inputs.indexOf(event.currentTarget);
+    const nextInput = inputs[currentIndex + 1];
+
+    if (nextInput) {
+      nextInput.focus();
+      nextInput.select();
+    } else {
+      event.currentTarget.blur();
+    }
+  }
+
+  function savePresets(list: Preset[]) {
+    setPresets(list);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    } catch {
+      // Presets are optional; ignore private-mode or quota failures.
+    }
+  }
+
+  function handleSavePreset() {
+    const name = presetName.trim() || `Preset ${new Date().toLocaleString()}`;
+    const preset: Preset = { name, totalOrder, splitBoat, twoVariants, boat, vneck };
+    const index = presets.findIndex((item) => item.name === name);
+    const next = [...presets];
+
+    if (index >= 0) next[index] = preset;
+    else next.push(preset);
+
+    savePresets(next);
+    setSelectedPreset(name);
+  }
+
+  function handleLoadPreset(name: string) {
+    const preset = presets.find((item) => item.name === name);
+    if (!preset) return;
+
+    setSelectedPreset(name);
+    setTotalOrder(preset.totalOrder);
+    setSplitBoat(preset.splitBoat);
+    setTwoVariants(preset.twoVariants);
+    setBoat(preset.boat);
+    setVneck(preset.vneck);
+  }
+
+  function handleDeletePreset(name: string) {
+    const next = presets.filter((preset) => preset.name !== name);
+    savePresets(next);
+    if (selectedPreset === name) setSelectedPreset("");
+  }
+
+  function updateRow(setter: RowSetter, index: number, key: keyof Row, value: string) {
+    setter((prev) => {
+      const next = [...prev];
+      const row = { ...next[index] };
+
+      if (key === "size") row.size = value;
+      else if (key === "sales") row.sales = value;
+      else if (key === "available") row.available = value;
+
+      next[index] = row;
+      return next;
+    });
+  }
+
+  function addRow(setter: RowSetter) {
+    setter((prev) => [...prev, { size: "", sales: "", proportion: 0, available: "" }]);
+  }
+
+  function removeRow(setter: RowSetter, index: number) {
+    setter((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Size Order Allocator</h1>
-            <p className="text-gray-600">Distribute an order across variants and sizes using stock and historical sales.</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 bg-white p-4 rounded-2xl shadow">
-            <label className="flex items-center gap-2 col-span-2">
-              <input type="checkbox" checked={twoVariants} onChange={(e)=> setTwoVariants(e.target.checked)} />
-              <span className="text-sm text-gray-700">Product has <b>two variants</b> (Boat neck / V-neck)</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Total order</span>
-              <input type="number" className="w-28 border rounded-lg px-2 py-1 text-right" value={totalOrder}
-                onChange={(e)=> setTotalOrder(Math.max(0, Math.floor(toNumber(e.target.value, 0))))} />
-            </label>
-            {twoVariants && (
-              <label className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Boat neck share</span>
-                <input type="number" step="0.01" className="w-28 border rounded-lg px-2 py-1 text-right" value={splitBoat}
-                  onChange={(e)=> setSplitBoat(Math.max(0, Math.min(1, toNumber(e.target.value, 0))))} />
+    <div className="min-h-screen bg-slate-100 p-4 text-slate-900 md:p-8">
+      <div className="mx-auto max-w-7xl space-y-5">
+        <header className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Order planning</p>
+              <h1 className="mt-1 text-2xl font-bold text-slate-950 md:text-3xl">Size Order Allocator</h1>
+              <p className="mt-2 max-w-2xl text-sm text-slate-600">
+                Distribute an order across variants and sizes using stock, historical sales, and the current variant split.
+              </p>
+            </div>
+
+            <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:min-w-[520px]">
+              <label className="flex items-center gap-2 sm:col-span-2">
+                <input
+                  className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  type="checkbox"
+                  checked={twoVariants}
+                  onChange={(event) => setTwoVariants(event.target.checked)}
+                />
+                <span className="text-sm text-slate-700">
+                  Product has <b>two variants</b> (Boat neck / V-neck)
+                </span>
               </label>
-            )}
-            <div className="col-span-2 text-xs text-gray-600">
-              {twoVariants ? (
-                <>V-neck share = <b>{toPercent(splitV)}</b>, Boat neck = <b>{toPercent(splitBoat)}</b>. Orders: Boat <b>{orderBoat}</b> pcs, V-neck <b>{orderV}</b> pcs.</>
-              ) : (
-                <>Single product mode. The entire order goes into one table.</>
+
+              <label className="space-y-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Total order</span>
+                <input
+                  type="number"
+                  className={`${inputClass} w-full text-right`}
+                  data-entry-input="true"
+                  value={totalOrder}
+                  onChange={(event) => setTotalOrder(Math.max(0, Math.floor(toNumber(event.target.value, 0))))}
+                  onKeyDown={focusNextEntry}
+                />
+              </label>
+
+              {twoVariants && (
+                <label className="space-y-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Boat neck share</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className={`${inputClass} w-full text-right`}
+                    data-entry-input="true"
+                    value={splitBoat}
+                    onChange={(event) => setSplitBoat(Math.max(0, Math.min(1, toNumber(event.target.value, 0))))}
+                    onKeyDown={focusNextEntry}
+                  />
+                </label>
               )}
+
+              <div className="rounded-md border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs text-cyan-900 sm:col-span-2">
+                {twoVariants ? (
+                  <>
+                    Boat <b>{toPercent(splitBoat)}</b> / V-neck <b>{toPercent(splitV)}</b>. Orders: Boat <b>{orderBoat}</b> pcs, V-neck{" "}
+                    <b>{orderV}</b> pcs.
+                  </>
+                ) : (
+                  <>Single product mode. The whole order goes into the first table.</>
+                )}
+              </div>
             </div>
           </div>
         </header>
 
-        <div className={`grid gap-6 ${twoVariants ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
-          <Section title={twoVariants ? "Variant: Boat neck" : "Product"} rows={boat} setRows={setBoat} alloc={boatAlloc} orderQty={orderBoat} totalAvail={totalAvailBoat} updateRowFunc={updateRow} addRowFunc={addRow} removeRowFunc={removeRow} />
+        <div className={`grid gap-5 ${twoVariants ? "xl:grid-cols-2" : "xl:grid-cols-1"}`}>
+          <Section
+            title={twoVariants ? "Variant: Boat neck" : "Product"}
+            rows={boat}
+            setRows={setBoat}
+            alloc={boatAlloc}
+            orderQty={orderBoat}
+            totalAvail={totalAvailBoat}
+            onEntryKeyDown={focusNextEntry}
+            updateRowFunc={updateRow}
+            addRowFunc={addRow}
+            removeRowFunc={removeRow}
+          />
           {twoVariants && (
-            <Section title="Variant: V-neck" rows={vneck} setRows={setVneck} alloc={vAlloc} orderQty={orderV} totalAvail={totalAvailV} updateRowFunc={updateRow} addRowFunc={addRow} removeRowFunc={removeRow} />
+            <Section
+              title="Variant: V-neck"
+              rows={vneck}
+              setRows={setVneck}
+              alloc={vAlloc}
+              orderQty={orderV}
+              totalAvail={totalAvailV}
+              onEntryKeyDown={focusNextEntry}
+              updateRowFunc={updateRow}
+              addRowFunc={addRow}
+              removeRowFunc={removeRow}
+            />
           )}
         </div>
 
-        <div className="bg-white rounded-2xl shadow p-4 md:p-6">
-          <h2 className="text-lg font-semibold mb-2">Summary</h2>
-          <div className="grid md:grid-cols-3 gap-4 text-sm">
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="text-gray-600">Total order</div>
-              <div className="text-2xl font-bold">{totalOrder} pcs</div>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-950">Summary</h2>
+              <p className="mt-1 text-sm text-slate-600">Review totals, export files, and save reusable presets.</p>
             </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="text-gray-600">Orders (Boat / V)</div>
-              <div className="text-2xl font-bold">{sum(boatAlloc)} / {sum(vAlloc)} pcs</div>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="text-gray-600">Integrity check</div>
-              <div className={`text-2xl font-bold ${sum(boatAlloc) + sum(vAlloc) === totalOrder ? 'text-emerald-600' : 'text-red-600'}`}>
-                {sum(boatAlloc) + sum(vAlloc)} / {totalOrder}
-              </div>
+            <div className="flex flex-wrap gap-2">
+              <button className={buttonClass} onClick={() => exportXLSX(exportParams)} type="button">
+                Export XLSX
+              </button>
+              <button className={buttonClass} onClick={() => exportCSV(exportParams)} type="button">
+                Export CSV
+              </button>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3 mt-4">
-            <button className="px-4 py-2 rounded-xl border" onClick={exportXLSX}>Export XLSX</button>
-            <button className="px-4 py-2 rounded-xl border" onClick={exportCSV}>Export CSV</button>
-
-            <div className="ml-auto flex items-center gap-2">
-              <input className="border rounded-lg px-2 py-1" placeholder="Preset name" value={presetName} onChange={e=>setPresetName(e.target.value)} />
-              <button className="px-3 py-2 rounded-xl border" onClick={handleSavePreset}>Save preset</button>
-              <select className="border rounded-lg px-2 py-2" value={selectedPreset} onChange={e=> handleLoadPreset(e.target.value)}>
-                <option value="">– load preset –</option>
-                {presets.map(p=> <option key={p.name} value={p.name}>{p.name}</option>)}
-              </select>
-              {selectedPreset && <button className="px-3 py-2 rounded-xl border text-red-600" onClick={()=>handleDeletePreset(selectedPreset)}>Delete preset</button>}
-            </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <MetricCard label="Total order" value={`${totalOrder} pcs`} accent="border-l-4 border-l-cyan-500" />
+            <MetricCard label="Orders Boat / V" value={`${sum(boatAlloc)} / ${sum(vAlloc)} pcs`} accent="border-l-4 border-l-amber-500" />
+            <MetricCard
+              label="Integrity check"
+              value={`${totalAllocated} / ${totalOrder}`}
+              accent={`border-l-4 ${totalAllocated === totalOrder ? "border-l-emerald-500" : "border-l-rose-500"}`}
+            />
           </div>
 
-          <p className="mt-3 text-gray-600 text-sm">
-            Algorithm: target final stock = proportion × (available + order). Per-size order = max(0, target − available),
-            then scale and round via largest remainders to hit the exact total.
+          <div className="mt-4 flex flex-col gap-2 border-t border-slate-200 pt-4 lg:flex-row lg:items-center">
+            <input
+              className={`${inputClass} w-full lg:w-64`}
+              placeholder="Preset name"
+              value={presetName}
+              onChange={(event) => setPresetName(event.target.value)}
+            />
+            <button className={buttonClass} onClick={handleSavePreset} type="button">
+              Save preset
+            </button>
+            <select
+              className={`${inputClass} w-full lg:w-64`}
+              value={selectedPreset}
+              onChange={(event) => handleLoadPreset(event.target.value)}
+            >
+              <option value="">- load preset -</option>
+              {presets.map((preset) => (
+                <option key={preset.name} value={preset.name}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
+            {selectedPreset && (
+              <button className={`${buttonClass} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={() => handleDeletePreset(selectedPreset)} type="button">
+                Delete preset
+              </button>
+            )}
+          </div>
+
+          <p className="mt-3 text-sm text-slate-500">
+            Algorithm: target final stock = proportion x (available + order). Per-size order = max(0, target - available), then scale and
+            round via largest remainders to hit the exact total.
           </p>
-        </div>
-
-        <footer className="text-xs text-gray-500">
-          Tip: “Sales” and “Available” inputs keep raw text while typing (inputMode=numeric) — no cursor jumping; parsing happens in calculations.
-        </footer>
+        </section>
       </div>
     </div>
   );
