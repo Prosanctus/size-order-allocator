@@ -42,6 +42,8 @@ type BaseTemplate = Preset & {
 };
 
 type RowSetter = React.Dispatch<React.SetStateAction<Row[]>>;
+type AppView = "start" | "allocator" | "reorder";
+type IconProps = { className?: string };
 
 type SectionProps = {
   title: string;
@@ -60,6 +62,14 @@ type MetricCardProps = {
   label: string;
   value: string;
   accent: string;
+};
+
+type NavItemProps = {
+  icon: React.ComponentType<IconProps>;
+  label: string;
+  description: string;
+  active: boolean;
+  onClick: () => void;
 };
 
 const STORAGE_KEY = "size_order_allocator_presets_v1";
@@ -146,12 +156,67 @@ function cloneRows(rows: Row[]) {
   return rows.map((row) => ({ ...row }));
 }
 
+function HomeIcon({ className = "" }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+      <path d="m3 10 9-7 9 7" />
+      <path d="M5 10v10h14V10" />
+      <path d="M9 20v-6h6v6" />
+    </svg>
+  );
+}
+
+function AllocatorIcon({ className = "" }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+      <path d="M4 5h16" />
+      <path d="M4 12h16" />
+      <path d="M4 19h16" />
+      <path d="M8 5v14" />
+      <path d="M16 5v14" />
+    </svg>
+  );
+}
+
+function ReorderIcon({ className = "" }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+      <path d="M6 7h12" />
+      <path d="M6 12h12" />
+      <path d="M6 17h7" />
+      <path d="M4 4h16v16H4z" />
+    </svg>
+  );
+}
+
 function MetricCard({ label, value, accent }: MetricCardProps) {
   return (
     <div className={`rounded-lg border border-slate-200 bg-white p-4 shadow-sm ${accent}`}>
       <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
       <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
     </div>
+  );
+}
+
+function NavItem({ icon: Icon, label, description, active, onClick }: NavItemProps) {
+  return (
+    <button
+      className={`group flex w-full items-start gap-3 rounded-lg border px-3 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-cyan-100 ${
+        active
+          ? "border-cyan-200 bg-cyan-50 text-cyan-950"
+          : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-950"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      <span className={`mt-0.5 rounded-md p-1.5 ${active ? "bg-cyan-100 text-cyan-700" : "bg-slate-100 text-slate-500 group-hover:text-slate-800"}`}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <span>
+        <span className="block text-sm font-semibold">{label}</span>
+        <span className="mt-0.5 block text-xs leading-4 opacity-75">{description}</span>
+      </span>
+    </button>
   );
 }
 
@@ -265,6 +330,7 @@ function Section({
 }
 
 export default function App() {
+  const [activeView, setActiveView] = useState<AppView>("start");
   const [twoVariants, setTwoVariants] = useState<boolean>(true);
   const [totalOrder, setTotalOrder] = useState<number>(800);
   const [splitBoat, setSplitBoat] = useState<number>(0.4);
@@ -285,8 +351,8 @@ export default function App() {
   const exportParams = { totalOrder, twoVariants, splitBoat, orderBoat, orderV, boat, vneck, boatAlloc, vAlloc };
 
   useEffect(() => {
-    document.title = `Size Order Allocator - ${twoVariants ? "Dual Variant" : "Single Variant"}`;
-  }, [twoVariants]);
+    document.title = "Production Planner";
+  }, []);
 
   useEffect(() => {
     try {
@@ -331,6 +397,7 @@ export default function App() {
     setVneck(cloneRows(template.vneck));
     setPresetName(template.name);
     setSelectedPreset("");
+    setActiveView("allocator");
   }
 
   function savePresets(list: Preset[]) {
@@ -365,6 +432,7 @@ export default function App() {
     setTwoVariants(preset.twoVariants);
     setBoat(cloneRows(preset.boat));
     setVneck(cloneRows(preset.vneck));
+    setActiveView("allocator");
   }
 
   function handleDeletePreset(name: string) {
@@ -395,226 +463,327 @@ export default function App() {
     setter((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
   }
 
-  return (
-    <div className="min-h-screen bg-slate-100 p-4 text-slate-900 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-5">
-        <header className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Order planning</p>
-              <h1 className="mt-1 text-2xl font-bold text-slate-950 md:text-3xl">Size Order Allocator</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-600">
-                Distribute an order across variants and sizes using stock, historical sales, and the current variant split.
-              </p>
+  const startView = (
+    <div className="space-y-5">
+      <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Start</p>
+        <h1 className="mt-1 text-2xl font-bold text-slate-950 md:text-3xl">Dashboard produkcyjny</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+          Tu docelowo zbierzemy najważniejsze informacje: produkty do domówienia, ostatnie alokacje, alerty braków rozmiarów i szybkie akcje dla produkcji.
+        </p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <button className={buttonClass} onClick={() => setActiveView("allocator")} type="button">
+            Otwórz alokator rozmiarów
+          </button>
+          <button className={buttonClass} onClick={() => setActiveView("reorder")} type="button">
+            Produkty do domówienia
+          </button>
+        </div>
+      </section>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <MetricCard label="Moduły aktywne" value="1" accent="border-l-4 border-l-cyan-500" />
+        <MetricCard label="Szablony bazowe" value={`${baseTemplates.length}`} accent="border-l-4 border-l-amber-500" />
+        <MetricCard label="Zapisane presety" value={`${presets.length}`} accent="border-l-4 border-l-emerald-500" />
+      </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-950">Plan rozwoju</h2>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {[
+            "Import CSV/XLSX ze sprzedażą i stockiem",
+            "Produkty do domówienia bez dostępu do Shopify API",
+            "Eksport zamówienia gotowego dla produkcji",
+            "Ręczne blokady i korekty rozmiarów",
+            "Historia poprzednich alokacji",
+            "Alerty, gdy rozmiar był wyprzedany i sprzedaż jest zaniżona",
+          ].map((item) => (
+            <div key={item} className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              {item}
             </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
 
-            <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:min-w-[520px]">
-              <label className="flex items-center gap-2 sm:col-span-2">
-                <input
-                  className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                  type="checkbox"
-                  checked={twoVariants}
-                  onChange={(event) => setTwoVariants(event.target.checked)}
-                />
-                <span className="text-sm text-slate-700">
-                  Product has <b>two variants</b> (Boat neck / V-neck)
-                </span>
-              </label>
+  const allocatorView = (
+    <div className="space-y-5">
+      <header className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Alokator zamówień rozmiarów</p>
+            <h1 className="mt-1 text-2xl font-bold text-slate-950 md:text-3xl">Rozdział produkcji po rozmiarach</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-600">
+              Rozdziel zamówienie między warianty i rozmiary na podstawie sprzedaży historycznej, aktualnego stocku i udziału wariantów.
+            </p>
+          </div>
 
+          <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:min-w-[520px]">
+            <label className="flex items-center gap-2 sm:col-span-2">
+              <input
+                className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                type="checkbox"
+                checked={twoVariants}
+                onChange={(event) => setTwoVariants(event.target.checked)}
+              />
+              <span className="text-sm text-slate-700">
+                Produkt ma <b>dwa warianty</b>
+              </span>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Łączne zamówienie</span>
+              <input
+                type="number"
+                className={`${inputClass} w-full text-right`}
+                data-entry-input="true"
+                value={totalOrder}
+                onChange={(event) => setTotalOrder(Math.max(0, Math.floor(toNumber(event.target.value, 0))))}
+                onKeyDown={focusNextEntry}
+              />
+            </label>
+
+            {twoVariants && (
               <label className="space-y-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Total order</span>
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Udział wariantu 1</span>
                 <input
                   type="number"
+                  step="0.01"
                   className={`${inputClass} w-full text-right`}
                   data-entry-input="true"
-                  value={totalOrder}
-                  onChange={(event) => setTotalOrder(Math.max(0, Math.floor(toNumber(event.target.value, 0))))}
+                  value={splitBoat}
+                  onChange={(event) => setSplitBoat(Math.max(0, Math.min(1, toNumber(event.target.value, 0))))}
                   onKeyDown={focusNextEntry}
                 />
               </label>
+            )}
 
-              {twoVariants && (
-                <label className="space-y-1">
-                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Boat neck share</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className={`${inputClass} w-full text-right`}
-                    data-entry-input="true"
-                    value={splitBoat}
-                    onChange={(event) => setSplitBoat(Math.max(0, Math.min(1, toNumber(event.target.value, 0))))}
-                    onKeyDown={focusNextEntry}
-                  />
-                </label>
+            <div className="rounded-md border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs text-cyan-900 sm:col-span-2">
+              {twoVariants ? (
+                <>
+                  Wariant 1 <b>{toPercent(splitBoat)}</b> / Wariant 2 <b>{toPercent(splitV)}</b>. Zamówienia: <b>{orderBoat}</b> pcs /{" "}
+                  <b>{orderV}</b> pcs.
+                </>
+              ) : (
+                <>Tryb jednego produktu. Całe zamówienie trafia do pierwszej tabeli.</>
               )}
-
-              <div className="rounded-md border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs text-cyan-900 sm:col-span-2">
-                {twoVariants ? (
-                  <>
-                    Boat <b>{toPercent(splitBoat)}</b> / V-neck <b>{toPercent(splitV)}</b>. Orders: Boat <b>{orderBoat}</b> pcs, V-neck{" "}
-                    <b>{orderV}</b> pcs.
-                  </>
-                ) : (
-                  <>Single product mode. The whole order goes into the first table.</>
-                )}
-              </div>
             </div>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Bazowe szablony</p>
-              <h2 className="text-lg font-semibold text-slate-950">Start z gotowej rozmiarówki</h2>
-              <p className="mt-1 text-sm text-slate-600">Wybierz typ produktu, a potem podmień sprzedaż i dostępność na aktualne dane.</p>
-            </div>
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Bazowe szablony</p>
+            <h2 className="text-lg font-semibold text-slate-950">Start z gotowej rozmiarówki</h2>
+            <p className="mt-1 text-sm text-slate-600">Wybierz typ produktu, a potem podmień sprzedaż i dostępność na aktualne dane.</p>
           </div>
+        </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {baseTemplates.map((template) => (
-              <button
-                key={template.name}
-                className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-cyan-400 hover:bg-cyan-50 focus:outline-none focus:ring-2 focus:ring-cyan-100"
-                onClick={() => applyTemplate(template)}
-                type="button"
-              >
-                <span className="text-sm font-semibold text-slate-950">{template.name}</span>
-                <span className="mt-2 block text-xs leading-5 text-slate-600">{template.description}</span>
-              </button>
-            ))}
-          </div>
-        </section>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {baseTemplates.map((template) => (
+            <button
+              key={template.name}
+              className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-cyan-400 hover:bg-cyan-50 focus:outline-none focus:ring-2 focus:ring-cyan-100"
+              onClick={() => applyTemplate(template)}
+              type="button"
+            >
+              <span className="text-sm font-semibold text-slate-950">{template.name}</span>
+              <span className="mt-2 block text-xs leading-5 text-slate-600">{template.description}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
-        <div className={`grid gap-5 ${twoVariants ? "xl:grid-cols-2" : "xl:grid-cols-1"}`}>
+      <div className={`grid gap-5 ${twoVariants ? "xl:grid-cols-2" : "xl:grid-cols-1"}`}>
+        <Section
+          title={twoVariants ? "Wariant 1" : "Produkt"}
+          rows={boat}
+          setRows={setBoat}
+          alloc={boatAlloc}
+          orderQty={orderBoat}
+          totalAvail={totalAvailBoat}
+          onEntryKeyDown={focusNextEntry}
+          updateRowFunc={updateRow}
+          addRowFunc={addRow}
+          removeRowFunc={removeRow}
+        />
+        {twoVariants && (
           <Section
-            title={twoVariants ? "Variant: Boat neck" : "Product"}
-            rows={boat}
-            setRows={setBoat}
-            alloc={boatAlloc}
-            orderQty={orderBoat}
-            totalAvail={totalAvailBoat}
+            title="Wariant 2"
+            rows={vneck}
+            setRows={setVneck}
+            alloc={vAlloc}
+            orderQty={orderV}
+            totalAvail={totalAvailV}
             onEntryKeyDown={focusNextEntry}
             updateRowFunc={updateRow}
             addRowFunc={addRow}
             removeRowFunc={removeRow}
           />
-          {twoVariants && (
-            <Section
-              title="Variant: V-neck"
-              rows={vneck}
-              setRows={setVneck}
-              alloc={vAlloc}
-              orderQty={orderV}
-              totalAvail={totalAvailV}
-              onEntryKeyDown={focusNextEntry}
-              updateRowFunc={updateRow}
-              addRowFunc={addRow}
-              removeRowFunc={removeRow}
-            />
+        )}
+      </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Instrukcja dla produkcji</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">Jak przygotować dane do zamówienia</h2>
+            <ol className="mt-3 space-y-3 text-sm leading-6 text-slate-700">
+              <li>
+                <b>Sprzedaż:</b> wpisz sprzedaż z okresu, w którym produkt realnie był na stocku. Najlepiej użyć ostatnich 30 dni dostępności dla
+                każdego rozmiaru. Jeśli rozmiar był wyprzedany przez część okresu, nie licz dni bez stocku do analizy.
+              </li>
+              <li>
+                <b>Dostępne:</b> wpisz aktualny stan magazynowy przed domówieniem. To ma być stan dostępny do sprzedaży, nie suma z rezerwacjami albo
+                towarem w drodze.
+              </li>
+              <li>
+                <b>Łączne zamówienie:</b> wpisz całkowitą liczbę sztuk, którą chcesz zlecić do produkcji. Aplikacja rozdzieli ją po rozmiarach tak,
+                żeby po dostawie stock był bliżej proporcji sprzedaży.
+              </li>
+              <li>
+                <b>Dwa warianty:</b> włącz checkbox, gdy produkt ma dwie wersje, np. dwa kroje, dekolty albo kolory produkowane w jednej partii.
+              </li>
+            </ol>
+          </div>
+
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+            <h3 className="font-semibold">Dobra praktyka</h3>
+            <p className="mt-2">
+              Dla nowego produktu użyj podobnego produktu jako benchmarku: podobny krój, materiał, sezon i cena. Dla bestsellerów patrz na dłuższy
+              okres, ale tylko wtedy, gdy rozmiary nie były długo wyprzedane.
+            </p>
+            <p className="mt-2">
+              Jeśli jakiś rozmiar sprzedał mało sztuk tylko dlatego, że szybko zniknął ze stocku, podnieś jego sprzedaż ręcznie albo użyj okresu, w
+              którym był dostępny. Inaczej algorytm może go zaniżyć.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">Podsumowanie</h2>
+            <p className="mt-1 text-sm text-slate-600">Sprawdź sumy, wyeksportuj pliki i zapisz własne presety.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button className={buttonClass} onClick={() => exportXLSX(exportParams)} type="button">
+              Export XLSX
+            </button>
+            <button className={buttonClass} onClick={() => exportCSV(exportParams)} type="button">
+              Export CSV
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <MetricCard label="Łączne zamówienie" value={`${totalOrder} pcs`} accent="border-l-4 border-l-cyan-500" />
+          <MetricCard label="Zamówienia 1 / 2" value={`${sum(boatAlloc)} / ${sum(vAlloc)} pcs`} accent="border-l-4 border-l-amber-500" />
+          <MetricCard
+            label="Kontrola sumy"
+            value={`${totalAllocated} / ${totalOrder}`}
+            accent={`border-l-4 ${totalAllocated === totalOrder ? "border-l-emerald-500" : "border-l-rose-500"}`}
+          />
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 border-t border-slate-200 pt-4 lg:flex-row lg:items-center">
+          <input
+            className={`${inputClass} w-full lg:w-64`}
+            placeholder="Nazwa presetu"
+            value={presetName}
+            onChange={(event) => setPresetName(event.target.value)}
+          />
+          <button className={buttonClass} onClick={handleSavePreset} type="button">
+            Zapisz preset
+          </button>
+          <select className={`${inputClass} w-full lg:w-64`} value={selectedPreset} onChange={(event) => handleLoadPreset(event.target.value)}>
+            <option value="">- wczytaj preset -</option>
+            {presets.map((preset) => (
+              <option key={preset.name} value={preset.name}>
+                {preset.name}
+              </option>
+            ))}
+          </select>
+          {selectedPreset && (
+            <button className={`${buttonClass} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={() => handleDeletePreset(selectedPreset)} type="button">
+              Usuń preset
+            </button>
           )}
         </div>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Instrukcja dla produkcji</p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-950">Jak przygotować dane do zamówienia</h2>
-              <ol className="mt-3 space-y-3 text-sm leading-6 text-slate-700">
-                <li>
-                  <b>Sales:</b> wpisz sprzedaż z okresu, w którym produkt realnie był na stocku. Najlepiej użyć ostatnich 30 dni dostępności dla
-                  każdego rozmiaru. Jeśli rozmiar był wyprzedany przez część okresu, nie licz dni bez stocku do analizy.
-                </li>
-                <li>
-                  <b>Available:</b> wpisz aktualny stan magazynowy przed domówieniem. To ma być stan dostępny do sprzedaży, nie suma z rezerwacjami
-                  albo towarem w drodze.
-                </li>
-                <li>
-                  <b>Total order:</b> wpisz całkowitą liczbę sztuk, którą chcesz zlecić do produkcji. Aplikacja rozdzieli ją po rozmiarach tak, żeby
-                  po dostawie stock był bliżej proporcji sprzedaży.
-                </li>
-                <li>
-                  <b>Dwa warianty:</b> włącz checkbox, gdy produkt ma dwie wersje, np. dwa kroje, dekolty albo kolory produkowane w jednej partii.
-                  Ustaw udział pierwszego wariantu w polu Boat neck share.
-                </li>
-              </ol>
-            </div>
+        <p className="mt-3 text-sm text-slate-500">
+          Algorytm: docelowy stock = proporcja x (dostępne + zamówienie). Zamówienie per rozmiar = max(0, cel - dostępne), potem skalowanie i
+          zaokrąglenie tak, żeby trafić dokładnie w sumę zamówienia.
+        </p>
+      </section>
+    </div>
+  );
 
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-              <h3 className="font-semibold">Dobra praktyka</h3>
-              <p className="mt-2">
-                Dla nowego produktu użyj podobnego produktu jako benchmarku: podobny krój, materiał, sezon i cena. Dla bestsellerów patrz na
-                dłuższy okres, ale tylko wtedy, gdy rozmiary nie były długo wyprzedane.
-              </p>
-              <p className="mt-2">
-                Jeśli jakiś rozmiar sprzedał mało sztuk tylko dlatego, że szybko zniknął ze stocku, podnieś jego sprzedaż ręcznie albo użyj okresu,
-                w którym był dostępny. Inaczej algorytm może go zaniżyć.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-950">Summary</h2>
-              <p className="mt-1 text-sm text-slate-600">Review totals, export files, and save reusable presets.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button className={buttonClass} onClick={() => exportXLSX(exportParams)} type="button">
-                Export XLSX
-              </button>
-              <button className={buttonClass} onClick={() => exportCSV(exportParams)} type="button">
-                Export CSV
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <MetricCard label="Total order" value={`${totalOrder} pcs`} accent="border-l-4 border-l-cyan-500" />
-            <MetricCard label="Orders Boat / V" value={`${sum(boatAlloc)} / ${sum(vAlloc)} pcs`} accent="border-l-4 border-l-amber-500" />
-            <MetricCard
-              label="Integrity check"
-              value={`${totalAllocated} / ${totalOrder}`}
-              accent={`border-l-4 ${totalAllocated === totalOrder ? "border-l-emerald-500" : "border-l-rose-500"}`}
-            />
-          </div>
-
-          <div className="mt-4 flex flex-col gap-2 border-t border-slate-200 pt-4 lg:flex-row lg:items-center">
-            <input
-              className={`${inputClass} w-full lg:w-64`}
-              placeholder="Preset name"
-              value={presetName}
-              onChange={(event) => setPresetName(event.target.value)}
-            />
-            <button className={buttonClass} onClick={handleSavePreset} type="button">
-              Save preset
-            </button>
-            <select
-              className={`${inputClass} w-full lg:w-64`}
-              value={selectedPreset}
-              onChange={(event) => handleLoadPreset(event.target.value)}
-            >
-              <option value="">- load preset -</option>
-              {presets.map((preset) => (
-                <option key={preset.name} value={preset.name}>
-                  {preset.name}
-                </option>
-              ))}
-            </select>
-            {selectedPreset && (
-              <button className={`${buttonClass} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={() => handleDeletePreset(selectedPreset)} type="button">
-                Delete preset
-              </button>
-            )}
-          </div>
-
-          <p className="mt-3 text-sm text-slate-500">
-            Algorithm: target final stock = proportion x (available + order). Per-size order = max(0, target - available), then scale and
-            round via largest remainders to hit the exact total.
-          </p>
-        </section>
+  const reorderView = (
+    <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Produkty do domówienia</p>
+      <h1 className="mt-1 text-2xl font-bold text-slate-950 md:text-3xl">Lista produktów do analizy</h1>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+        To będzie miejsce na import plików z Shopify albo raportów CSV/XLSX. Na start możemy zrobić bezpieczny import lokalny w przeglądarce, bez
+        dawania aplikacji dostępu do Shopify API.
+      </p>
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <MetricCard label="Źródło danych" value="CSV/XLSX" accent="border-l-4 border-l-cyan-500" />
+        <MetricCard label="Dostęp do Shopify" value="Brak" accent="border-l-4 border-l-emerald-500" />
+        <MetricCard label="Status" value="Plan" accent="border-l-4 border-l-amber-500" />
       </div>
+    </section>
+  );
+
+  const currentView = activeView === "start" ? startView : activeView === "allocator" ? allocatorView : reorderView;
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-900 lg:flex">
+      <aside className="border-b border-slate-200 bg-slate-950 p-4 text-white lg:sticky lg:top-0 lg:h-screen lg:w-80 lg:border-b-0 lg:border-r lg:border-slate-800">
+        <div className="flex items-center gap-3 rounded-lg bg-white/5 p-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-400 font-bold text-slate-950">PP</div>
+          <div>
+            <div className="text-sm font-semibold">Production Planner</div>
+            <div className="text-xs text-slate-400">Modułowa aplikacja produkcyjna</div>
+          </div>
+        </div>
+
+        <nav className="mt-4 grid gap-2">
+          <NavItem
+            active={activeView === "start"}
+            description="Przyszły dashboard i szybkie akcje"
+            icon={HomeIcon}
+            label="Start"
+            onClick={() => setActiveView("start")}
+          />
+          <NavItem
+            active={activeView === "allocator"}
+            description="Rozdział zamówienia po rozmiarach"
+            icon={AllocatorIcon}
+            label="Alokator zamówień rozmiarów"
+            onClick={() => setActiveView("allocator")}
+          />
+          <NavItem
+            active={activeView === "reorder"}
+            description="Import raportów i lista braków"
+            icon={ReorderIcon}
+            label="Produkty do domówienia"
+            onClick={() => setActiveView("reorder")}
+          />
+        </nav>
+
+        <div className="mt-4 rounded-lg border border-slate-800 bg-white/5 p-3 text-xs leading-5 text-slate-300">
+          Kolejne moduły można dodawać bez przebudowy całego UI. Sidebar zostaje szkieletem aplikacji.
+        </div>
+      </aside>
+
+      <main className="min-w-0 flex-1 p-4 md:p-8">
+        <div className="mx-auto max-w-7xl">{currentView}</div>
+      </main>
     </div>
   );
 }
